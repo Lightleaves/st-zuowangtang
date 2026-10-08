@@ -1,0 +1,10 @@
+{
+    "display_name": "坐忘堂",
+    "loading_message": "坐忘堂·议事面板加载中…",
+    "js": "index.js",
+    "css": "style.css",
+    "author": "QwenWork × 梦鲸思客生态",
+    "version": "0.1.0",
+    "homePage": "",
+    "auto_update": false
+}
