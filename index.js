@@ -2,9 +2,11 @@
 // 在正文聊天之外提供议事面板：讨论用 generateQuietPrompt（不进聊天），
 // 大纲写入当前激活世界书的 constant 条目，供写作类预设自动消费。
 // 与任何预设解耦：不依赖预设内嵌脚本、不依赖 TavernHelper。
+//
+// 注意：本服务器环境的 script.js 未导出 getContext/eventSource/event_types，
+// 因此除 extension_settings 外一律通过 SillyTavern.getContext() 全局获取。
 
 import { extension_settings } from '../../../extensions.js';
-import { event_types, eventSource, getContext, saveSettingsDebounced } from '../../../../script.js';
 
 const MODULE_NAME = 'zuowangtang';
 
@@ -40,6 +42,7 @@ const el = (tag, cls, text) => {
     if (text != null) n.textContent = text;
     return n;
 };
+const getContext = () => window.SillyTavern.getContext();
 const chatKey = () => 'zwt_council_history_' + (getContext().getCurrentChatId?.() || 'default');
 const loadHistory = () => { try { history = JSON.parse(localStorage.getItem(chatKey()) || '[]'); } catch (e) { history = []; } };
 const saveHistory = () => { try { localStorage.setItem(chatKey(), JSON.stringify(history)); } catch (e) { } };
@@ -77,12 +80,12 @@ function withCouncilContext(fn) {
     const w = order.find(o => o.identifier === W);
     const had = w ? w.enabled : null;
     if (w) w.enabled = false;
-    ctx.setExtensionPrompt?.(MODULE_NAME + '_council', COUNCIL_SYSTEM, 1, 0, true);
+    try { ctx.setExtensionPrompt?.(MODULE_NAME + '_council', COUNCIL_SYSTEM, 1, 0, true); } catch (e) { }
     return Promise.resolve()
         .then(fn)
         .finally(() => {
             if (w && had !== null) w.enabled = had;
-            ctx.setExtensionPrompt?.(MODULE_NAME + '_council', '', 1, 0, true);
+            try { ctx.setExtensionPrompt?.(MODULE_NAME + '_council', '', 1, 0, true); } catch (e) { }
         });
 }
 
@@ -104,7 +107,7 @@ async function doSend() {
     } finally { busy = false; }
 }
 
-async function resolveActiveWorld(wi) {
+async function resolveActiveWorld() {
     try { const bp = document.getElementById('bp-wb-select'); if (bp && bp.value) return bp.value; } catch (e) { }
     try { const s = document.getElementById('world_info'); if (s && s.value) return s.value; } catch (e) { }
     try {
@@ -126,7 +129,7 @@ async function doApply() {
         const outline = m[0];
         setStatus('正在写入世界书常量条目…');
         const wi = await import('../../../world-info.js');
-        const name = await resolveActiveWorld(wi);
+        const name = await resolveActiveWorld();
         if (!name) { setStatus('未找到激活的世界书。'); return; }
         const data = await wi.loadWorldInfo(name);
         if (!data) { setStatus('世界书加载失败：' + name); return; }
@@ -190,16 +193,21 @@ function buildUI() {
     inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
 }
 
-jQuery(() => {
+function boot() {
+    if (!window.SillyTavern || !window.SillyTavern.getContext || !document.body) { setTimeout(boot, 500); return; }
     if (!extension_settings[MODULE_NAME]) extension_settings[MODULE_NAME] = {};
     for (const k of Object.keys(DEFAULTS)) {
         if (!(k in extension_settings[MODULE_NAME])) extension_settings[MODULE_NAME][k] = DEFAULTS[k];
     }
-    saveSettingsDebounced();
+    try { getContext().saveSettingsDebounced?.(); } catch (e) { }
     loadHistory();
     buildUI();
-    eventSource.on(event_types.CHAT_CHANGED, () => { loadHistory(); render(); });
-    // 调试/联调钩子
+    // 切换聊天时重载议事历史（事件接口可用才挂）
+    try {
+        const ctx = getContext();
+        ctx.eventSource?.on?.(ctx.eventTypes?.CHAT_CHANGED, () => { loadHistory(); render(); });
+    } catch (e) { }
+    // 联调钩子
     window.__zwt = {
         get history() { return history; },
         setHistory(h) { history = h; saveHistory(); render(); },
@@ -207,4 +215,7 @@ jQuery(() => {
         apply: doApply,
     };
     console.log('[坐忘堂] 扩展已加载');
-});
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
