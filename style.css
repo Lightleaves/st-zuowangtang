@@ -269,3 +269,50 @@
 }
 
 .zwt-cancel:hover, .zwt-reset:hover { border-color: #bbb; color: #111; }
+
+/* ---- 系统提示词视图 ---- */
+.zwt-sys-add { display: flex; gap: 10px; align-items: stretch; }
+
+.zwt-sys-input { flex: 1 1 auto; }
+
+.zwt-sys-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.zwt-sys-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #ececec;
+    border-radius: 10px;
+    background: #fafafa;
+}
+
+.zwt-sys-text {
+    flex: 1 1 auto;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #222;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.zwt-sys-del {
+    flex: none;
+    padding: 4px 12px;
+    border: 1px solid #e6c8c8;
+    border-radius: 8px;
+    background: #fff;
+    color: #b04a4a;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.zwt-sys-del:hover { border-color: #c0392b; color: #c0392b; background: #fdf3f3; }
