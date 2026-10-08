@@ -159,8 +159,9 @@ function buildUI() {
     // 用 pointerdown 捕获绑定：部分扩展会在捕获层吞掉 click 事件
     fab.addEventListener('pointerdown', e => {
         e.stopPropagation();
-        panelEl.style.display = (panelEl.style.display === 'none') ? 'flex' : 'none';
-        if (panelEl.style.display === 'flex') render();
+        const open = panelEl.style.display === 'flex';
+        panelEl.style.display = open ? 'none' : 'flex';
+        if (!open) render();
     }, true);
     document.body.appendChild(fab);
 
