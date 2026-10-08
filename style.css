@@ -1,126 +1,175 @@
-/* 坐忘堂 · 样式 */
+/* 坐忘堂 · 普通 AI 问答式界面 */
+
+/* ---- 右下角入口 ---- */
 .zwt-fab {
     position: fixed;
     right: 18px;
     bottom: 120px;
     z-index: 99998;
-    padding: 8px 14px;
-    border-radius: 20px;
-    border: 1px solid #8866aa;
-    background: #2a2135;
-    color: #e8dcf5;
+    padding: 9px 16px;
+    border-radius: 22px;
+    border: none;
+    background: #1f1f1f;
+    color: #fff;
     cursor: pointer;
     font-size: 14px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, .4);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, .35);
 }
 
-.zwt-panel {
+.zwt-fab:hover { background: #000; }
+
+/* ---- 遮罩 ---- */
+.zwt-overlay {
     position: fixed;
-    right: 18px;
-    bottom: 168px;
-    z-index: 99998;
-    width: 460px;
-    max-height: 70vh;
+    inset: 0;
+    z-index: 99999;
     display: none;
-    flex-direction: column;
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid #6b5a86;
-    background: #221a2e;
-    color: #e8dcf5;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
-    font-size: 13px;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, .45);
+    padding: 24px;
 }
 
+/* ---- 居中卡片 ---- */
+.zwt-card {
+    display: flex;
+    flex-direction: column;
+    width: min(760px, 94vw);
+    height: min(80vh, 760px);
+    background: #ffffff;
+    border-radius: 14px;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, .3);
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #1a1a1a;
+}
+
+/* ---- 头部 ---- */
 .zwt-head {
-    padding: 8px 12px;
-    background: #332847;
     display: flex;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #ececec;
+    flex: none;
 }
 
-.zwt-hint {
-    font-size: 11px;
-    opacity: .7;
-    margin-left: auto;
+.zwt-headtxt { display: flex; align-items: baseline; gap: 10px; }
+
+.zwt-title { font-size: 17px; font-weight: 700; color: #111; }
+
+.zwt-subtitle { font-size: 12px; color: #999; }
+
+.zwt-close {
+    width: 32px; height: 32px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #666;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
 }
 
-.zwt-status {
-    padding: 4px 12px;
-    font-size: 11px;
-    opacity: .8;
-    background: #2a2138;
-    min-height: 16px;
-}
+.zwt-close:hover { background: #f2f2f2; color: #000; }
 
+/* ---- 对话区 ---- */
 .zwt-list {
     flex: 1 1 auto;
     overflow-y: auto;
-    padding: 10px 12px;
+    padding: 22px 24px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 16px;
+    background: #fff;
 }
 
-.zwt-bubble {
-    padding: 8px 10px;
-    border-radius: 8px;
+.zwt-empty { color: #aaa; font-size: 14px; text-align: center; margin-top: 40px; }
+
+.zwt-row { display: flex; }
+.zwt-row-user { justify-content: flex-end; }
+.zwt-row-ai { justify-content: flex-start; }
+
+.zwt-text {
+    max-width: 82%;
+    font-size: 15px;
+    line-height: 1.75;
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 260px;
-    overflow-y: auto;
 }
 
-.zwt-user {
-    background: #3a2f52;
-    border: 1px solid #5a4a78;
+/* 用户消息：右侧灰色气泡（AI 问答通用样式） */
+.zwt-row-user .zwt-text {
+    background: #f2f2f2;
+    color: #111;
+    padding: 10px 16px;
+    border-radius: 16px 16px 4px 16px;
 }
 
-.zwt-ai {
-    background: #241c33;
-    border: 1px solid #3d3154;
+/* AI 消息：左侧纯文本流，无边框 */
+.zwt-row-ai .zwt-text { color: #222; }
+
+/* ---- 状态行 ---- */
+.zwt-status {
+    flex: none;
+    min-height: 20px;
+    padding: 0 24px 6px;
+    font-size: 12px;
+    color: #999;
 }
 
-.zwt-tag {
-    font-size: 10px;
-    opacity: .6;
-    margin-bottom: 4px;
-}
+/* ---- 输入区 ---- */
+.zwt-foot { flex: none; padding: 8px 20px 18px; border-top: 1px solid #ececec; background: #fff; }
 
-.zwt-foot {
-    padding: 8px;
-    border-top: 1px solid #44365c;
+.zwt-inputwrap {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    align-items: flex-end;
+    gap: 10px;
+    border: 1px solid #ddd;
+    border-radius: 14px;
+    padding: 10px 12px;
+    background: #fff;
 }
+
+.zwt-inputwrap:focus-within { border-color: #1f1f1f; }
 
 .zwt-input {
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 56px;
-    resize: vertical;
-    background: #1a1424;
-    color: #f0e8fa;
-    border: 1px solid #55446e;
-    border-radius: 6px;
-    padding: 6px;
-    font-size: 13px;
+    flex: 1 1 auto;
+    border: none;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: #111;
+    font-size: 15px;
+    line-height: 1.6;
+    font-family: inherit;
+    max-height: 160px;
 }
 
-.zwt-btnrow {
-    display: flex;
-    gap: 6px;
-}
-
-.zwt-btn {
-    flex: 1 1 0;
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid #55446e;
-    background: #332847;
-    color: #e8dcf5;
+.zwt-send {
+    flex: none;
+    padding: 8px 18px;
+    border: none;
+    border-radius: 10px;
+    background: #1f1f1f;
+    color: #fff;
+    font-size: 14px;
     cursor: pointer;
-    font-size: 12px;
 }
+
+.zwt-send:hover { background: #000; }
+
+/* ---- 操作行 ---- */
+.zwt-ops { display: flex; gap: 8px; margin-top: 10px; }
+
+.zwt-op {
+    padding: 5px 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fff;
+    color: #555;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.zwt-op:hover { border-color: #bbb; color: #111; }
