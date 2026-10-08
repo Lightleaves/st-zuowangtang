@@ -1,9 +1,8 @@
 // 坐忘堂 · SillyTavern 原生扩展
-// 在正文聊天之外提供议事面板：讨论用 generateQuietPrompt（不进聊天），
-// 大纲写入当前激活世界书的 constant 条目，供写作类预设自动消费。
-// 与任何预设解耦：不依赖预设内嵌脚本、不依赖 TavernHelper。
+// 正文之外的"剧情议事"面板：多轮讨论（generateQuietPrompt，不进主聊天）。
+// 每条思客回复带「选中」按钮 → 一键把该回复填入 ST 主聊天输入框。
+// 不再写世界书、不再整理大纲，与任何预设解耦。
 //
-// UI：普通 AI 问答式（居中卡片 + 遮罩 + 白底对话流 + 底部输入框）。
 // 注意：本服务器环境的 script.js 未导出 getContext/eventSource/event_types，
 // 因此除 extension_settings 外一律通过 SillyTavern.getContext() 全局获取。
 
@@ -11,30 +10,19 @@ import { extension_settings } from '../../../extensions.js';
 
 const MODULE_NAME = 'zuowangtang';
 
-const DEFAULTS = {
-    entry_comment: '坐忘堂当前大纲',
-};
-
-// 议事提示词：简短、自然、无格式
+// 议事提示词：简短、自然、无格式；产出可直接被"选中"填入主聊天的文字
 const COUNCIL_SYSTEM = [
     '你是"坐忘堂"里的梦鲸思客：梦客的编剧搭档，陪他把下一段剧情聊清楚。',
     '你熟悉当前世界书设定与全部上文正文，讨论时直接基于它们，不必复述。',
     '回答要简短、自然、像人说话：直接给看法、给两三个走向、或追问关键偏好；通常几句话说完，最多一小段。',
     '禁止使用XML标签、禁止固定模板、禁止长篇结构化清单、禁止编号大纲式输出。',
     '不要写正文、不要代角色说话。',
-    '当梦客表示"就这个/定了/可以写了"时，用一两句话确认最终走向要点即可；写作大纲由面板自动整理，你无需输出任何格式。',
-].join('\n');
-
-const CONDENSE_SYSTEM = [
-    '把下面这段"坐忘堂"议事记录整理成一份写作大纲。',
-    '只输出一个 <dream_outline> XML 文档，不要输出任何其它文字、不要代码块。',
-    '字段：scene / cast(内含<actor name=".." state=".."/>) / tone / beats(至少3条<beat n="N">) / nsfw(level属性0-5) / length(数字) / ending_hook / constraints(内含<must>与<ban>) / open_questions(无则填"无")。',
-    '只写讨论中已确定的内容；仍未确定的写入 open_questions。',
+    '你的每条回复都会被梦客一键"选中"后填入主聊天输入框、作为下一段的写作指令，所以请把每条回复写成可以直接当作剧情指令/大纲要点的自然文字。',
 ].join('\n');
 
 let history = [];
 let busy = false;
-let overlayEl = null, cardEl = null, listEl = null, inputEl = null, statusEl = null;
+let overlayEl = null, listEl = null, inputEl = null, statusEl = null;
 
 const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -59,6 +47,17 @@ function buildQuietPrompt(userMsg) {
 
 function setStatus(t) { if (statusEl) statusEl.textContent = t || ''; }
 
+// 把某条思客回复填入 ST 主聊天输入框
+function pickToInput(text) {
+    const ta = document.getElementById('send_textarea');
+    if (!ta) { setStatus('未找到主聊天输入框。'); return; }
+    const cur = (ta.value || '').trim();
+    ta.value = cur ? (cur + '\n\n' + text) : text;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    closePanel();
+    ta.focus();
+}
+
 function render() {
     if (!listEl) return;
     listEl.innerHTML = '';
@@ -70,9 +69,16 @@ function render() {
     }
     history.forEach(m => {
         const row = el('div', 'zwt-row ' + (m.role === 'user' ? 'zwt-row-user' : 'zwt-row-ai'));
+        const col = el('div', 'zwt-col');
         const bubble = el('div', 'zwt-text');
         bubble.textContent = m.text;
-        row.appendChild(bubble);
+        col.appendChild(bubble);
+        if (m.role === 'ai') {
+            const pick = el('button', 'zwt-pick', '选中 → 填入输入框');
+            pick.addEventListener('pointerdown', e => { e.stopPropagation(); pickToInput(m.text); }, true);
+            col.appendChild(pick);
+        }
+        row.appendChild(col);
         listEl.appendChild(row);
     });
     listEl.scrollTop = listEl.scrollHeight;
@@ -120,51 +126,6 @@ async function doSend() {
     } finally { busy = false; }
 }
 
-async function resolveActiveWorld() {
-    try { const bp = document.getElementById('bp-wb-select'); if (bp && bp.value) return bp.value; } catch (e) { }
-    try { const s = document.getElementById('world_info'); if (s && s.value) return s.value; } catch (e) { }
-    try {
-        const pu = getContext().powerUserSettings || {};
-        if (Array.isArray(pu.world_info) && pu.world_info.length) return pu.world_info[0];
-    } catch (e) { }
-    return null;
-}
-
-async function doApply() {
-    if (!history.length) { setStatus('还没有讨论内容。'); return; }
-    busy = true; setStatus('正在把讨论整理成写作大纲…');
-    try {
-        const ctx = getContext();
-        const transcript = history.map(m => (m.role === 'user' ? '梦客：' : '思客：') + m.text).join('\n\n');
-        const doc = await withCouncilContext(() => ctx.generateQuietPrompt(CONDENSE_SYSTEM + '\n\n' + transcript));
-        const m = (doc || '').match(/<dream_outline[\s\S]*?<\/dream_outline>/);
-        if (!m) { setStatus('整理失败：请再聊一轮把走向说定，或重试。'); return; }
-        const outline = m[0];
-        setStatus('正在写入世界书…');
-        const wi = await import('../../../world-info.js');
-        const name = await resolveActiveWorld();
-        if (!name) { setStatus('未找到激活的世界书。'); return; }
-        const data = await wi.loadWorldInfo(name);
-        if (!data) { setStatus('世界书加载失败：' + name); return; }
-        const comment = extension_settings[MODULE_NAME].entry_comment;
-        const ents = () => Object.values(data.entries || {});
-        let entry = ents().find(x => x && x.comment === comment);
-        if (!entry) entry = wi.createWorldInfoEntry(name, data);
-        entry.comment = comment;
-        entry.content = outline;
-        entry.constant = true;
-        entry.disable = false;
-        entry.key = []; entry.keysecondary = [];
-        entry.order = 999;
-        await wi.saveWorldInfo(name, data, true);
-        history.push({ role: 'ai', text: '大纲已应用到世界书，回主聊天发写作指令即可按它写。' });
-        saveHistory(); render();
-        setStatus('已完成。');
-    } catch (e) {
-        setStatus('失败：' + (e?.message || e));
-    } finally { busy = false; }
-}
-
 function buildUI() {
     if (document.querySelector('.zwt-fab')) return;
 
@@ -179,12 +140,11 @@ function buildUI() {
     overlayEl.addEventListener('pointerdown', e => { if (e.target === overlayEl) closePanel(); }, true);
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
 
-    cardEl = el('div', 'zwt-card');
+    const cardEl = el('div', 'zwt-card');
 
-    // 头部
     const head = el('div', 'zwt-head');
     const title = el('div', 'zwt-title', '坐忘堂');
-    const sub = el('div', 'zwt-subtitle', '剧情议事 · 讨论不进主聊天');
+    const sub = el('div', 'zwt-subtitle', '剧情议事 · 回复可一键选中填入输入框');
     const headTxt = el('div', 'zwt-headtxt');
     headTxt.appendChild(title); headTxt.appendChild(sub);
     const closeBtn = el('button', 'zwt-close', '×');
@@ -193,15 +153,12 @@ function buildUI() {
     head.appendChild(closeBtn);
     cardEl.appendChild(head);
 
-    // 对话区
     listEl = el('div', 'zwt-list');
     cardEl.appendChild(listEl);
 
-    // 状态行
     statusEl = el('div', 'zwt-status');
     cardEl.appendChild(statusEl);
 
-    // 输入区
     const foot = el('div', 'zwt-foot');
     const inputWrap = el('div', 'zwt-inputwrap');
     inputEl = el('textarea', 'zwt-input');
@@ -214,13 +171,9 @@ function buildUI() {
     foot.appendChild(inputWrap);
 
     const ops = el('div', 'zwt-ops');
-    const mkOp = (t, fn) => {
-        const b = el('button', 'zwt-op', t);
-        b.addEventListener('pointerdown', e => { e.stopPropagation(); fn(); }, true);
-        return b;
-    };
-    ops.appendChild(mkOp('应用大纲到正文', doApply));
-    ops.appendChild(mkOp('清空讨论', () => { if (confirm('清空本聊天的坐忘堂讨论记录？')) { history = []; saveHistory(); render(); } }));
+    const clearBtn = el('button', 'zwt-op', '清空讨论');
+    clearBtn.addEventListener('pointerdown', e => { e.stopPropagation(); if (confirm('清空本聊天的坐忘堂讨论记录？')) { history = []; saveHistory(); render(); setStatus(''); } }, true);
+    ops.appendChild(clearBtn);
     foot.appendChild(ops);
     cardEl.appendChild(foot);
 
@@ -233,10 +186,6 @@ function buildUI() {
 function boot() {
     if (!window.SillyTavern || !window.SillyTavern.getContext || !document.body) { setTimeout(boot, 500); return; }
     if (!extension_settings[MODULE_NAME]) extension_settings[MODULE_NAME] = {};
-    for (const k of Object.keys(DEFAULTS)) {
-        if (!(k in extension_settings[MODULE_NAME])) extension_settings[MODULE_NAME][k] = DEFAULTS[k];
-    }
-    try { getContext().saveSettingsDebounced?.(); } catch (e) { }
     loadHistory();
     buildUI();
     try {
@@ -247,7 +196,7 @@ function boot() {
         get history() { return history; },
         setHistory(h) { history = h; saveHistory(); render(); },
         send: doSend,
-        apply: doApply,
+        pick: pickToInput,
         open: openPanel,
         close: closePanel,
     };
