@@ -1,7 +1,7 @@
 // 坐忘堂 · SillyTavern 原生扩展
 // 正文之外的"剧情议事"面板：多轮讨论（generateQuietPrompt，不进主聊天）。
 // 每条思客回复带「选中」按钮 → 一键把该回复填入 ST 主聊天输入框。
-// 「思客设定」可自定义讨论者的名字/性格/语言风格/口头禅，相当于塑造第二个角色。
+// 「思客设定」自定义讨论者角色；「系统提示词」维护一条条默认约束（回复不得与之矛盾）。
 // 不写世界书、与任何预设解耦。
 //
 // 注意：本服务器环境的 script.js 未导出 getContext/eventSource/event_types，
@@ -11,8 +11,8 @@ import { extension_settings } from '../../../extensions.js';
 
 const MODULE_NAME = 'zuowangtang';
 const PERSONA_KEY = 'zwt_persona';
+const SYSPROMPT_KEY = 'zwt_sysprompts';
 
-// 默认思客设定（未自定义时的行为，接近原始"梦鲸思客"参谋味）
 const DEFAULT_PERSONA = {
     name: '思客',
     personality: '冷静、专业的剧情参谋，善于提出多个走向并明确推荐；对梦客友善但不谄媚。',
@@ -22,11 +22,12 @@ const DEFAULT_PERSONA = {
 };
 
 let persona = { ...DEFAULT_PERSONA };
+let sysPrompts = [];
 let history = [];
 let busy = false;
 let overlayEl = null, listEl = null, inputEl = null, statusEl = null;
-let viewChat = null, viewSettings = null;
-let formRefs = null;
+let viewChat = null, viewSettings = null, viewSys = null;
+let formRefs = null, sysListEl = null, sysInputEl = null;
 
 const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -45,11 +46,15 @@ function loadPersona() {
         persona = raw ? { ...DEFAULT_PERSONA, ...JSON.parse(raw) } : { ...DEFAULT_PERSONA };
     } catch (e) { persona = { ...DEFAULT_PERSONA }; }
 }
-function savePersona() {
-    try { localStorage.setItem(PERSONA_KEY, JSON.stringify(persona)); } catch (e) { }
-}
+function savePersona() { try { localStorage.setItem(PERSONA_KEY, JSON.stringify(persona)); } catch (e) { } }
 
-// 依据当前思客设定拼装系统提示词
+function loadSysPrompts() {
+    try { const raw = localStorage.getItem(SYSPROMPT_KEY); const a = raw ? JSON.parse(raw) : []; sysPrompts = Array.isArray(a) ? a.filter(x => typeof x === 'string' && x.trim()) : []; }
+    catch (e) { sysPrompts = []; }
+}
+function saveSysPrompts() { try { localStorage.setItem(SYSPROMPT_KEY, JSON.stringify(sysPrompts)); } catch (e) { } }
+
+// 依据当前思客设定 + 系统提示词拼装系统提示词
 function councilSystemPrompt() {
     const p = persona || {};
     const name = (p.name || '').trim() || '思客';
@@ -64,6 +69,11 @@ function councilSystemPrompt() {
     lines.push('禁止使用XML标签、禁止固定模板、禁止长篇结构化清单、禁止编号大纲式输出。');
     lines.push('不要写正文、不要代角色说话。');
     lines.push('你的每条回复都会被梦客一键"选中"后填入主聊天输入框、作为下一段的写作指令，所以请把每条回复写成可以直接当作剧情指令/大纲要点的自然文字。');
+    if (sysPrompts.length) {
+        lines.push('');
+        lines.push('【默认设定（每次回复都必须纳入考虑，绝不能与之矛盾；但不必在回复里逐条复述或刻意体现）】');
+        sysPrompts.forEach(s => lines.push(`- ${s}`));
+    }
     return lines.join('\n');
 }
 
@@ -98,7 +108,6 @@ function render() {
         listEl.appendChild(empty);
         return;
     }
-    const speaker = (persona.name || '思客').trim() || '思客';
     history.forEach(m => {
         const row = el('div', 'zwt-row ' + (m.role === 'user' ? 'zwt-row-user' : 'zwt-row-ai'));
         const col = el('div', 'zwt-col');
@@ -116,18 +125,20 @@ function render() {
     listEl.scrollTop = listEl.scrollHeight;
 }
 
+// ---- 视图切换 ----
+function setView(which) {
+    viewChat.style.display = which === 'chat' ? 'flex' : 'none';
+    viewSettings.style.display = which === 'settings' ? 'flex' : 'none';
+    viewSys.style.display = which === 'sys' ? 'flex' : 'none';
+}
 function openPanel() {
     overlayEl.style.display = 'flex';
-    showChatView();
+    setView('chat');
     render();
     setTimeout(() => inputEl?.focus(), 50);
 }
 function closePanel() { overlayEl.style.display = 'none'; }
 
-function showChatView() {
-    viewChat.style.display = 'flex';
-    viewSettings.style.display = 'none';
-}
 function showSettingsView() {
     if (formRefs) {
         formRefs.name.value = persona.name || '';
@@ -136,8 +147,7 @@ function showSettingsView() {
         formRefs.catchphrase.value = persona.catchphrase || '';
         formRefs.extra.value = persona.extra || '';
     }
-    viewChat.style.display = 'none';
-    viewSettings.style.display = 'flex';
+    setView('settings');
 }
 function saveSettings() {
     persona.name = (formRefs.name.value || '').trim();
@@ -146,21 +156,51 @@ function saveSettings() {
     persona.catchphrase = (formRefs.catchphrase.value || '').trim();
     persona.extra = (formRefs.extra.value || '').trim();
     savePersona();
-    showChatView();
+    setView('chat');
     render();
     setStatus('思客设定已保存。');
 }
-function resetSettings() {
-    persona = { ...DEFAULT_PERSONA };
-    savePersona();
-    showSettingsView();
-    setStatus('已恢复默认思客设定。');
-}
+function resetSettings() { persona = { ...DEFAULT_PERSONA }; savePersona(); showSettingsView(); setStatus('已恢复默认思客设定。'); }
 
-// 议事期间临时注入扩展提示词，并尽力关闭写作类输出模式，避免 quiet 调用被写作协议带偏
+// ---- 系统提示词视图 ----
+function renderSysList() {
+    if (!sysListEl) return;
+    sysListEl.innerHTML = '';
+    if (!sysPrompts.length) {
+        const empty = el('div', 'zwt-empty');
+        empty.textContent = '还没有系统提示词。在上方输入并点"添加"。';
+        sysListEl.appendChild(empty);
+        return;
+    }
+    sysPrompts.forEach((s, i) => {
+        const item = el('div', 'zwt-sys-item');
+        const txt = el('div', 'zwt-sys-text');
+        txt.textContent = s;
+        const del = el('button', 'zwt-sys-del', '删除');
+        del.addEventListener('pointerdown', e => { e.stopPropagation(); removeSysPrompt(i); }, true);
+        item.appendChild(txt); item.appendChild(del);
+        sysListEl.appendChild(item);
+    });
+}
+function addSysPrompt() {
+    const v = (sysInputEl.value || '').trim();
+    if (!v) return;
+    sysPrompts.push(v);
+    saveSysPrompts();
+    sysInputEl.value = '';
+    renderSysList();
+    setStatus('已添加 1 条系统提示词。');
+}
+function removeSysPrompt(i) {
+    sysPrompts.splice(i, 1);
+    saveSysPrompts();
+    renderSysList();
+}
+function showSysView() { renderSysList(); setView('sys'); setTimeout(() => sysInputEl?.focus(), 50); }
+
 function withCouncilContext(fn) {
     const ctx = getContext();
-    const W = '881044e5-cbef-43c7-ad19-c6e7f6d150b4'; // 梦鲸系写作模式（若存在）
+    const W = '881044e5-cbef-43c7-ad19-c6e7f6d150b4';
     const order = ctx.chatCompletionSettings?.prompt_order?.[0]?.order || [];
     const w = order.find(o => o.identifier === W);
     const had = w ? w.enabled : null;
@@ -192,47 +232,61 @@ async function doSend() {
     } finally { busy = false; }
 }
 
-function makeField(labelText, key, placeholder) {
+function makeField(labelText, placeholder) {
     const wrap = el('div', 'zwt-field');
     const label = el('label', 'zwt-label', labelText);
     const ta = el('textarea', 'zwt-field-input');
     ta.rows = 2;
     ta.placeholder = placeholder || '';
-    wrap.appendChild(label);
-    wrap.appendChild(ta);
+    wrap.appendChild(label); wrap.appendChild(ta);
     return { wrap, ta };
 }
 
 function buildSettingsView() {
-    const view = el('div', 'zwt-settings');
-    const tip = el('div', 'zwt-settings-tip', '设定"讨论者"这个角色：名字、性格、语言风格、口头禅等。保存后对之后的每条议事回复生效。');
-    view.appendChild(tip);
-
+    const view = el('div', 'zwt-settings zwt-view');
+    view.appendChild(el('div', 'zwt-settings-tip', '设定"讨论者"这个角色：名字、性格、语言风格、口头禅等。保存后对之后的每条议事回复生效。'));
     const nameWrap = el('div', 'zwt-field');
-    const nameLabel = el('label', 'zwt-label', '名字');
+    nameWrap.appendChild(el('label', 'zwt-label', '名字'));
     const nameInput = el('input', 'zwt-field-input zwt-field-line');
-    nameInput.type = 'text';
-    nameInput.placeholder = '思客';
-    nameWrap.appendChild(nameLabel); nameWrap.appendChild(nameInput);
-    view.appendChild(nameWrap);
-
-    const f1 = makeField('性格', 'personality', '例：冷静专业、爱抬杠、温柔体贴……');
-    const f2 = makeField('语言风格', 'style', '例：简短利落 / 文绉绉 / 口语化带梗……');
-    const f3 = makeField('口头禅 / 常用语', 'catchphrase', '例：「有点意思」「这事我熟」……');
-    const f4 = makeField('其它补充设定', 'extra', '身份背景、偏好、禁忌等，可留空');
+    nameInput.type = 'text'; nameInput.placeholder = '思客';
+    nameWrap.appendChild(nameInput); view.appendChild(nameWrap);
+    const f1 = makeField('性格', '例：冷静专业、爱抬杠、温柔体贴……');
+    const f2 = makeField('语言风格', '例：简短利落 / 文绉绉 / 口语化带梗……');
+    const f3 = makeField('口头禅 / 常用语', '例：「有点意思」「这事我熟」……');
+    const f4 = makeField('其它补充设定', '身份背景、偏好、禁忌等，可留空');
     view.appendChild(f1.wrap); view.appendChild(f2.wrap); view.appendChild(f3.wrap); view.appendChild(f4.wrap);
-
     const btnRow = el('div', 'zwt-settings-btns');
     const saveBtn = el('button', 'zwt-save', '保存');
     saveBtn.addEventListener('pointerdown', e => { e.stopPropagation(); saveSettings(); }, true);
     const backBtn = el('button', 'zwt-cancel', '返回');
-    backBtn.addEventListener('pointerdown', e => { e.stopPropagation(); showChatView(); }, true);
+    backBtn.addEventListener('pointerdown', e => { e.stopPropagation(); setView('chat'); }, true);
     const resetBtn = el('button', 'zwt-reset', '恢复默认');
     resetBtn.addEventListener('pointerdown', e => { e.stopPropagation(); if (confirm('恢复默认思客设定？')) resetSettings(); }, true);
     btnRow.appendChild(saveBtn); btnRow.appendChild(backBtn); btnRow.appendChild(resetBtn);
     view.appendChild(btnRow);
-
     formRefs = { name: nameInput, personality: f1.ta, style: f2.ta, catchphrase: f3.ta, extra: f4.ta };
+    return view;
+}
+
+function buildSysView() {
+    const view = el('div', 'zwt-settings zwt-view');
+    view.appendChild(el('div', 'zwt-settings-tip', '一条条的默认约束。每次议事回复都会纳入考虑，绝不能与之矛盾（但不必在回复里逐条体现）。'));
+    const addRow = el('div', 'zwt-sys-add');
+    sysInputEl = el('input', 'zwt-field-input zwt-field-line zwt-sys-input');
+    sysInputEl.type = 'text';
+    sysInputEl.placeholder = '输入一条系统提示词，回车或点"添加"';
+    sysInputEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addSysPrompt(); } });
+    const addBtn = el('button', 'zwt-save', '添加');
+    addBtn.addEventListener('pointerdown', e => { e.stopPropagation(); addSysPrompt(); }, true);
+    addRow.appendChild(sysInputEl); addRow.appendChild(addBtn);
+    view.appendChild(addRow);
+    sysListEl = el('div', 'zwt-sys-list');
+    view.appendChild(sysListEl);
+    const btnRow = el('div', 'zwt-settings-btns');
+    const backBtn = el('button', 'zwt-cancel', '返回');
+    backBtn.addEventListener('pointerdown', e => { e.stopPropagation(); setView('chat'); }, true);
+    btnRow.appendChild(backBtn);
+    view.appendChild(btnRow);
     return view;
 }
 
@@ -250,22 +304,21 @@ function buildUI() {
 
     const cardEl = el('div', 'zwt-card');
 
-    // 头部：标题 + 思客设定按钮 + 关闭
     const head = el('div', 'zwt-head');
-    const title = el('div', 'zwt-title', '坐忘堂');
-    const sub = el('div', 'zwt-subtitle', '剧情议事 · 回复可一键选中填入输入框');
     const headTxt = el('div', 'zwt-headtxt');
-    headTxt.appendChild(title); headTxt.appendChild(sub);
+    headTxt.appendChild(el('div', 'zwt-title', '坐忘堂'));
+    headTxt.appendChild(el('div', 'zwt-subtitle', '剧情议事 · 回复可一键选中填入输入框'));
     const headBtns = el('div', 'zwt-headbtns');
+    const sysBtn = el('button', 'zwt-gear', '系统提示词');
+    sysBtn.addEventListener('pointerdown', e => { e.stopPropagation(); showSysView(); }, true);
     const gearBtn = el('button', 'zwt-gear', '思客设定');
     gearBtn.addEventListener('pointerdown', e => { e.stopPropagation(); showSettingsView(); }, true);
     const closeBtn = el('button', 'zwt-close', '×');
     closeBtn.addEventListener('pointerdown', e => { e.stopPropagation(); closePanel(); }, true);
-    headBtns.appendChild(gearBtn); headBtns.appendChild(closeBtn);
+    headBtns.appendChild(sysBtn); headBtns.appendChild(gearBtn); headBtns.appendChild(closeBtn);
     head.appendChild(headTxt); head.appendChild(headBtns);
     cardEl.appendChild(head);
 
-    // 视图一：议事
     viewChat = el('div', 'zwt-view zwt-view-chat');
     listEl = el('div', 'zwt-list');
     viewChat.appendChild(listEl);
@@ -288,11 +341,13 @@ function buildUI() {
     viewChat.appendChild(foot);
     cardEl.appendChild(viewChat);
 
-    // 视图二：思客设定
     viewSettings = buildSettingsView();
-    viewSettings.classList.add('zwt-view');
     viewSettings.style.display = 'none';
     cardEl.appendChild(viewSettings);
+
+    viewSys = buildSysView();
+    viewSys.style.display = 'none';
+    cardEl.appendChild(viewSys);
 
     overlayEl.appendChild(cardEl);
     document.body.appendChild(overlayEl);
@@ -304,6 +359,7 @@ function boot() {
     if (!window.SillyTavern || !window.SillyTavern.getContext || !document.body) { setTimeout(boot, 500); return; }
     if (!extension_settings[MODULE_NAME]) extension_settings[MODULE_NAME] = {};
     loadPersona();
+    loadSysPrompts();
     loadHistory();
     buildUI();
     try {
@@ -315,12 +371,12 @@ function boot() {
         setHistory(h) { history = h; saveHistory(); render(); },
         get persona() { return persona; },
         setPersona(p) { persona = { ...DEFAULT_PERSONA, ...(p || {}) }; savePersona(); render(); },
+        get sysPrompts() { return sysPrompts.slice(); },
+        addSysPrompt(t) { const v = (t || '').trim(); if (v) { sysPrompts.push(v); saveSysPrompts(); renderSysList(); } },
+        removeSysPrompt(i) { sysPrompts.splice(i, 1); saveSysPrompts(); renderSysList(); },
         councilPrompt: () => councilSystemPrompt(),
-        send: doSend,
-        pick: pickToInput,
-        open: openPanel,
-        close: closePanel,
-        openSettings: showSettingsView,
+        send: doSend, pick: pickToInput, open: openPanel, close: closePanel,
+        openSettings: showSettingsView, openSys: showSysView,
     };
     console.log('[坐忘堂] 扩展已加载');
 }
